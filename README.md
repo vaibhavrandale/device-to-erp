@@ -2,7 +2,24 @@
 
 Same MQTT attendance flow as `esp8266-attendance`, but fingerprint instead of RFID.
 
-## Dev workflow (laptop → GitHub → Pi)
+## Where fingerprint templates are stored
+
+| Data | Where | Capacity |
+|------|--------|----------|
+| Biometric template | **On the R307S sensor flash** (not Pi disk, not MongoDB) | **1000** templates |
+| Mapping id `FP0007` | HR user `rfid_card_id` in MongoDB | unlimited |
+
+100+ users is fine (sensor holds 1000). If you replace the R307 module, re-enroll users (or keep the same sensor hardware).
+
+### Enroll from HR UI
+
+1. Pi `main.py` running + device **online**
+2. HR Admin → Employees → Add/Edit → select reader → **Enroll Finger**
+3. Place finger **twice** on the sensor
+4. Form gets `FP####`; for existing employees DB is updated automatically
+
+API: `POST /api/v1/hr/attendance/fingerprint/enroll` `{ device_id, hr_user_id? }`
+MQTT: down `a:enroll` → up `a:enroll_result`
 
 Edit always on the laptop in this folder. Never edit permanently on the Pi.
 

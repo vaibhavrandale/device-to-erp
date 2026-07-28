@@ -53,6 +53,8 @@ class AttendanceMqtt:
         self.tap_employee = ""
         self.tap_punch_type = ""
         self.tap_card_id = ""
+        self.enroll_pending = None
+        self.enroll_ack = None
 
     @property
     def down_topic(self) -> str:
@@ -121,6 +123,31 @@ class AttendanceMqtt:
             self.tap_employee = str(doc.get("employee_name") or "-")
             self.tap_punch_type = str(doc.get("punch_type") or "")
             self.tap_card_id = str(doc.get("card_id") or doc.get("c") or "")
+            return
+
+        if action == "enroll":
+            loc = doc.get("location")
+            try:
+                loc = int(loc) if loc is not None and str(loc).strip() != "" else None
+            except (TypeError, ValueError):
+                loc = None
+            self.enroll_pending = {
+                "hr_user_id": str(doc.get("hr_user_id") or ""),
+                "employee_id": str(doc.get("employee_id") or ""),
+                "employee_name": str(doc.get("employee_name") or ""),
+                "location": loc,
+                "timeout_s": float(doc.get("timeout_s") or 60),
+            }
+            print(
+                f"Enroll requested"
+                f" employee={self.enroll_pending['employee_name'] or self.enroll_pending['employee_id'] or '?'}"
+                f" location={loc or 'auto'}"
+            )
+            return
+
+        if action == "enroll_result":
+            self.enroll_ack = doc
+            return
 
     def connect(self, timeout_s: float = 15.0) -> bool:
         try:
@@ -224,6 +251,33 @@ class AttendanceMqtt:
                 "lo": self.storage.longitude,
             }
         )
+
+    def send_enroll_result(
+        self,
+        *,
+        ok: bool,
+        card_id: str = "",
+        location: int | None = None,
+        hr_user_id: str = "",
+        employee_id: str = "",
+        message: str = "",
+    ) -> bool:
+        payload: dict[str, Any] = {
+            "a": "enroll_result",
+            "hw": self.hw,
+            "d": self.storage.device_id,
+            "k": self.storage.device_key,
+            "ok": ok,
+            "success": ok,
+            "c": card_id,
+            "card_id": card_id,
+            "hr_user_id": hr_user_id,
+            "employee_id": employee_id,
+            "message": message,
+        }
+        if location is not None:
+            payload["location"] = location
+        return self.publish_up(payload)
 
     def wait_register(self, timeout_s: float) -> bool:
         deadline = time.monotonic() + timeout_s

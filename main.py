@@ -9,6 +9,7 @@ import time
 
 from taypro.boot import boot_register
 from taypro.config import load_config, parse_u32
+from taypro.enroll_remote import run_remote_enroll
 from taypro.fingerprint import R307, FingerprintError, finger_id_to_card
 from taypro.mqtt_client import AttendanceMqtt
 from taypro.oled import create_oled
@@ -137,6 +138,22 @@ def main() -> int:
                 if not oled.showing_tap and now - last_ui >= 1.0:
                     oled.show_ready(storage, wifi_ok=True, mqtt_ok=mqtt.connected())
                     last_ui = now
+
+            # HR UI remote enroll (templates stored on R307 flash)
+            if mqtt.enroll_pending and not tap.in_flight:
+                job = mqtt.enroll_pending
+                mqtt.enroll_pending = None
+                wait_lift = True
+                lift_streak = 0
+                run_remote_enroll(
+                    sensor,
+                    mqtt,
+                    job,
+                    capacity=capacity,
+                    oled=oled if (oled and oled.ready) else None,
+                )
+                time.sleep(poll_s)
+                continue
 
             if storage.is_registered() and storage.has_location() and not tap.in_flight:
                 try:
