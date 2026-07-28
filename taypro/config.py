@@ -35,7 +35,7 @@ DEFAULTS: dict[str, Any] = {
     "heartbeat_interval_s": 120,
     "tap_response_timeout_s": 12,
     "register_timeout_s": 15,
-    "finger_debounce_s": 2,
+    "finger_debounce_s": 5,
     "scan_poll_s": 0.2,
 }
 

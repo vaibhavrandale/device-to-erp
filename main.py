@@ -116,6 +116,8 @@ def main() -> int:
         oled.showing_tap = False
         oled.show_ready(storage, wifi_ok=True, mqtt_ok=mqtt.connected())
 
+    wait_lift = False  # one punch per finger placement
+
     try:
         while not stop:
             if not mqtt.connected():
@@ -137,16 +139,24 @@ def main() -> int:
 
             if storage.is_registered() and storage.has_location() and not tap.in_flight:
                 try:
-                    code = sensor.get_image()
-                    if code == 0x00:  # OK
-                        if sensor.image2tz(1) == 0x00:
-                            page = sensor.search(slot=1, start=0, count=capacity)
-                            if page is not None:
-                                tap.handle_template(page)
-                            else:
-                                print("Finger seen — no match in sensor library")
-                                if oled and oled.ready:
-                                    oled.show_no_match()
+                    # Holding finger must not fire check-in then instant check-out
+                    if wait_lift:
+                        if sensor.get_image() == 0x02:  # NO_FINGER
+                            wait_lift = False
+                            print("Finger lifted — ready for next scan")
+                    else:
+                        code = sensor.get_image()
+                        if code == 0x00:  # OK image
+                            if sensor.image2tz(1) == 0x00:
+                                page = sensor.search(slot=1, start=0, count=capacity)
+                                if page is not None:
+                                    tap.handle_template(page)
+                                    wait_lift = True
+                                else:
+                                    print("Finger seen — no match in sensor library")
+                                    if oled and oled.ready:
+                                        oled.show_no_match()
+                                    wait_lift = True
                 except FingerprintError as exc:
                     print(f"Scan error: {exc}")
 

@@ -26,14 +26,17 @@ class TapHandler:
         self.last_card: Optional[str] = None
         self.last_ms = 0.0
         self.in_flight = False
+        # Extra cooldown after any completed tap (same or any finger)
+        self.cooldown_s = max(debounce_s, 5.0)
 
     def handle_template(self, template_id: int) -> None:
         card_id = finger_id_to_card(template_id)
         now = time.monotonic()
+        if self.last_ms and (now - self.last_ms) < self.cooldown_s:
+            return
         if card_id == self.last_card and (now - self.last_ms) < self.debounce_s:
             return
-        self.last_card = card_id
-        self.last_ms = now
+        # last_ms / last_card updated when tap finishes (see finally)
 
         if not self.storage.is_registered():
             print("[ERR-701] NOT READY — register incomplete")
@@ -81,5 +84,7 @@ class TapHandler:
                     title = "NOT FOUND" if "not registered" in msg.lower() else "TAP FAILED"
                     self.oled.show_error(704, title, msg, card_id)
         finally:
+            self.last_card = card_id
+            self.last_ms = time.monotonic()
             self.mqtt.reset_tap_wait()
             self.in_flight = False
