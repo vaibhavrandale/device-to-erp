@@ -26,38 +26,42 @@ class TapHandler:
         self.last_card: Optional[str] = None
         self.last_ms = 0.0
         self.in_flight = False
-        # Extra cooldown after any completed tap (same or any finger)
-        self.cooldown_s = max(debounce_s, 5.0)
+        # Block any second MQTT tap for this long after arming a punch
+        self.cooldown_s = max(float(debounce_s), 10.0)
 
-    def handle_template(self, template_id: int) -> None:
+    def handle_template(self, template_id: int) -> bool:
+        """Returns True if a tap was armed/sent (caller should wait for finger lift)."""
         card_id = finger_id_to_card(template_id)
         now = time.monotonic()
+
+        if self.in_flight:
+            return False
         if self.last_ms and (now - self.last_ms) < self.cooldown_s:
-            return
-        if card_id == self.last_card and (now - self.last_ms) < self.debounce_s:
-            return
-        # last_ms / last_card updated when tap finishes (see finally)
+            print(f"Tap ignored — cooldown {self.cooldown_s:.0f}s")
+            return False
 
         if not self.storage.is_registered():
             print("[ERR-701] NOT READY — register incomplete")
             if self.oled:
                 self.oled.show_error(701, "NOT READY", "Wait for register")
-            return
+            return False
         if not self.storage.has_location():
             print("[ERR-706] NO LOCATION — set lat/lng in HR dashboard")
             if self.oled:
                 self.oled.show_error(706, "NO LOCATION", "Set lat/lng in HR")
-            return
-        if self.in_flight:
-            return
+            return False
         if not self.mqtt.connected():
             print("[ERR-702] MQTT not connected")
             if self.oled:
                 self.oled.show_error(702, "NO MQTT", "Cloud disconnected")
-            return
+            return False
+
+        # Arm lock BEFORE network I/O so a second match cannot publish
+        self.in_flight = True
+        self.last_card = card_id
+        self.last_ms = now
 
         print(f"Finger match template={template_id} → c={card_id}")
-        self.in_flight = True
         if self.oled:
             self.oled.show_processing(card_id)
         try:
@@ -65,12 +69,12 @@ class TapHandler:
                 print("[ERR-702] SEND FAILED")
                 if self.oled:
                     self.oled.show_error(702, "SEND FAILED", "MQTT publish failed", card_id)
-                return
+                return True
             if not self.mqtt.wait_tap(self.response_timeout_s):
                 print("[ERR-703] NO RESPONSE — server did not reply in time")
                 if self.oled:
                     self.oled.show_error(703, "NO RESPONSE", "Server timeout", card_id)
-                return
+                return True
             if self.mqtt.tap_ok:
                 print(
                     f"Tap OK — {self.mqtt.tap_employee} ({self.mqtt.tap_punch_type or 'punch'})"
@@ -83,8 +87,8 @@ class TapHandler:
                 if self.oled:
                     title = "NOT FOUND" if "not registered" in msg.lower() else "TAP FAILED"
                     self.oled.show_error(704, title, msg, card_id)
+            return True
         finally:
-            self.last_card = card_id
-            self.last_ms = time.monotonic()
             self.mqtt.reset_tap_wait()
             self.in_flight = False
+            self.last_ms = time.monotonic()

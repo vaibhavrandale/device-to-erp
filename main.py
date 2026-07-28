@@ -117,6 +117,7 @@ def main() -> int:
         oled.show_ready(storage, wifi_ok=True, mqtt_ok=mqtt.connected())
 
     wait_lift = False  # one punch per finger placement
+    lift_streak = 0  # need several NO_FINGER reads (avoids bounce → 2nd punch)
 
     try:
         while not stop:
@@ -139,24 +140,29 @@ def main() -> int:
 
             if storage.is_registered() and storage.has_location() and not tap.in_flight:
                 try:
-                    # Holding finger must not fire check-in then instant check-out
+                    img = sensor.get_image()
                     if wait_lift:
-                        if sensor.get_image() == 0x02:  # NO_FINGER
-                            wait_lift = False
-                            print("Finger lifted — ready for next scan")
-                    else:
-                        code = sensor.get_image()
-                        if code == 0x00:  # OK image
-                            if sensor.image2tz(1) == 0x00:
-                                page = sensor.search(slot=1, start=0, count=capacity)
-                                if page is not None:
-                                    tap.handle_template(page)
-                                    wait_lift = True
-                                else:
-                                    print("Finger seen — no match in sensor library")
-                                    if oled and oled.ready:
-                                        oled.show_no_match()
-                                    wait_lift = True
+                        if img == 0x02:  # NO_FINGER
+                            lift_streak += 1
+                            if lift_streak >= 5:  # ~stable lift
+                                wait_lift = False
+                                lift_streak = 0
+                                print("Finger lifted — ready for next scan")
+                        else:
+                            lift_streak = 0
+                    elif img == 0x00:  # finger present + image OK
+                        if sensor.image2tz(1) == 0x00:
+                            page = sensor.search(slot=1, start=0, count=capacity)
+                            if page is not None:
+                                wait_lift = True  # lock BEFORE mqtt round-trip
+                                lift_streak = 0
+                                tap.handle_template(page)
+                            else:
+                                print("Finger seen — no match in sensor library")
+                                if oled and oled.ready:
+                                    oled.show_no_match()
+                                wait_lift = True
+                                lift_streak = 0
                 except FingerprintError as exc:
                     print(f"Scan error: {exc}")
 
