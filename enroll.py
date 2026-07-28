@@ -15,7 +15,7 @@ import argparse
 import sys
 
 from taypro.config import load_config, parse_u32
-from taypro.fingerprint import R307, FingerprintError, finger_id_to_card
+from taypro.fingerprint import R307, FingerprintError, finger_id_to_fp
 
 
 def next_free_id(sensor: R307, capacity: int) -> int:
@@ -53,7 +53,7 @@ def main() -> int:
         print(f"R307 capacity={capacity} enrolled={count}")
 
         if args.list:
-            print("Assign each enrolled id in HR as card_id, e.g.", finger_id_to_card(1))
+            print("Assign each enrolled id in HR, e.g.", finger_id_to_fp(1))
             return 0
 
         if args.empty:
@@ -72,10 +72,10 @@ def main() -> int:
             return 1
 
         sensor.enroll(location)
-        card = finger_id_to_card(location)
+        fp = finger_id_to_fp(location)
         print()
         print(f"Enrolled template #{location}")
-        print(f"Put this in HR employee RFID / card_id field: {card}")
+        print(f"Put this in HR fingerprint field: {fp}")
         return 0
     except FingerprintError as exc:
         print(f"Enroll failed: {exc}")

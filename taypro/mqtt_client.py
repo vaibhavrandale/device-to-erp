@@ -234,7 +234,8 @@ class AttendanceMqtt:
             }
         )
 
-    def send_tap(self, card_id: str) -> bool:
+    def send_punch(self, fp_id: str) -> bool:
+        """Publish fingerprint punch (MQTT a:tap, c=FP####)."""
         if not self.storage.has_location():
             print("[ERR-701] Latitude/longitude not set on device")
             return False
@@ -245,13 +246,17 @@ class AttendanceMqtt:
                 "hw": self.hw,
                 "d": self.storage.device_id,
                 "k": self.storage.device_key,
-                "c": card_id,
+                "c": fp_id,
                 "latitude": self.storage.latitude,
                 "longitude": self.storage.longitude,
                 "la": self.storage.latitude,
                 "lo": self.storage.longitude,
             }
         )
+
+    # alias used by older call sites
+    def send_tap(self, card_id: str) -> bool:
+        return self.send_punch(card_id)
 
     def send_enroll_result(
         self,

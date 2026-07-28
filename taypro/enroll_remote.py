@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from .fingerprint import R307, FingerprintError, finger_id_to_card
+from .fingerprint import R307, FingerprintError, finger_id_to_fp
 from .mqtt_client import AttendanceMqtt
 from .oled import OledDisplay
 
@@ -49,18 +49,19 @@ def run_remote_enroll(
         label = employee_name or employee_id or f"#{location}"
         print(f"UI enroll finger {finger}/2 → page {location} ({label})")
         if oled and oled.ready:
-            oled.show_lines(f"ENROLL {finger}/2", label[:18], "Place finger 1/2")
+            oled.show_enroll(finger, label, "Place finger — scan 1 of 2")
 
         sensor.enroll(location, timeout_s=timeout_s)
-        card_id = finger_id_to_card(location)
-        msg = f"Finger {finger}/2 enrolled as {card_id}"
+        fp_id = finger_id_to_fp(location)
+        msg = f"Finger {finger}/2 enrolled as {fp_id}"
         print(msg)
         if oled and oled.ready:
-            oled.show_lines("ENROLLED", f"{finger}/2 {card_id}", label[:18])
+            oled.show_lines("ENROLLED OK", f"Finger {finger}/2", fp_id, label[:21])
+            oled._mark_temp(4.0)
 
         mqtt.send_enroll_result(
             ok=True,
-            card_id=card_id,
+            card_id=fp_id,
             location=location,
             hr_user_id=hr_user_id,
             employee_id=employee_id,
@@ -72,7 +73,7 @@ def run_remote_enroll(
         err = str(exc)
         print(f"UI enroll failed: {err}")
         if oled and oled.ready:
-            oled.show_error(801, "ENROLL FAIL", err[:40])
+            oled.show_error(801, "ENROLL FAIL", err, f"Finger {finger}/2")
         mqtt.send_enroll_result(
             ok=False,
             card_id="",

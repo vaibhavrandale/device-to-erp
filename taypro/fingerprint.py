@@ -263,6 +263,10 @@ class R307:
         return self.search(slot=1)
 
 
-def finger_id_to_card(template_id: int) -> str:
-    """Same field `c` as RFID UID — HR stores this as employee card_id."""
+def finger_id_to_fp(template_id: int) -> str:
+    """HR stores this as employee fingerprint id (MQTT field c)."""
     return f"FP{template_id:04d}"
+
+
+# backward alias
+finger_id_to_card = finger_id_to_fp
