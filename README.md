@@ -63,6 +63,66 @@ Tap sends:
 
 HR: put `FP0005` in the employee **RFID / card_id** field (same field as ESP cards).
 
+## Wiring diagram (Pi 3B + CP2102 R307S + 1.3\" I2C OLED)
+
+```text
+                    Raspberry Pi 3 Model B
+                 ┌─────────────────────────┐
+                 │  Pin1  3.3V ──────────────┼── OLED VCC
+                 │  Pin2  5V   ──────────────┼── R307 VCC
+                 │  Pin3  GPIO2 SDA ─────────┼── OLED SDA
+                 │  Pin5  GPIO3 SCL ─────────┼── OLED SCL
+                 │  Pin6  GND  ──┬───────────┼── OLED GND
+                 │               │           │
+                 │  USB ─────────┼───────────┼── CP2102 USB
+                 └───────────────┼───────────┘
+                                 │
+                    CP2102       │         R307S
+                 ┌───────────┐   │      ┌──────────┐
+                 │ GND ──────┼───┴──────┤ GND      │
+                 │ RXD ──────┼──────────┤ TX       │
+                 │ TXD ──────┼──────────┤ RX       │
+                 │ 3.3V (do not power R307 from here)
+                 └───────────┘          └──────────┘
+
+OLED 1.30" IIC V2.2 (4 pins): VCC / GND / SCL / SDA
+```
+
+### OLED pin table
+
+| OLED 1.30\" IIC | Pi 3B |
+|-----------------|-------|
+| VCC | Pin 1 (3.3V) |
+| GND | Pin 6 (GND) |
+| SCL | Pin 5 (GPIO3) |
+| SDA | Pin 3 (GPIO2) |
+
+Enable I2C once:
+```bash
+sudo raspi-config
+# Interface Options → I2C → Enable
+sudo reboot
+# check:
+sudo i2cdetect -y 1
+# expect 0x3C (or 0x3D)
+```
+
+If the screen stays blank, try in `config.json`:
+```json
+"oled_driver": "ssd1306"
+```
+(default is `sh1106`, same as ESP `OLED_IS_SH1106`)
+
+## Wiring (RasPi 3 Model B ↔ R307S via CP2102)
+
+| R307S | Connection |
+|-------|------------|
+| VCC | Pi **5V** (pin 2) |
+| GND | CP2102 GND + Pi GND |
+| TX | CP2102 RXD |
+| RX | CP2102 TXD |
+| CP2102 USB | Pi USB → `/dev/ttyUSB0` |
+
 ## Wiring (RasPi 3 Model B ↔ R307S)
 
 R307S is **3.3V UART** (do not feed 5V into Pi GPIO).
