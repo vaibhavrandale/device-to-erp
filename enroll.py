@@ -36,7 +36,7 @@ def main() -> int:
 
     cfg = load_config()
     try:
-        sensor = R307(
+        sensor = R307.open(
             port=cfg["fingerprint_port"],
             baudrate=int(cfg["fingerprint_baud"]),
             address=parse_u32(cfg.get("fingerprint_address"), 0xFFFFFFFF),

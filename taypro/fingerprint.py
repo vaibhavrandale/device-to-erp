@@ -31,23 +31,84 @@ class FingerprintError(RuntimeError):
     pass
 
 
+POWER_HINT = """
+R307 LED on briefly then OFF = power collapse (not a code bug).
+
+Wire like this with CP2102:
+  R307 VCC  -> Raspberry Pi pin 2 (5V)     << not CP2102 3.3V
+  R307 GND  -> CP2102 GND and Pi GND
+  R307 TX   -> CP2102 RXD
+  R307 RX   -> CP2102 TXD
+  CP2102    -> Pi USB
+
+LED must stay ON. Then: python3 diagnose.py
+"""
+
+
 class R307:
     def __init__(
         self,
-        port: str = "/dev/serial0",
+        port: str = "/dev/ttyUSB0",
         baudrate: int = 57600,
         address: int = 0xFFFFFFFF,
         password: int = 0x00000000,
         timeout: float = 2.0,
+        *,
+        _ser: serial.Serial | None = None,
     ):
         self.address = address & 0xFFFFFFFF
         self.password = password & 0xFFFFFFFF
-        self.ser = serial.Serial(port=port, baudrate=baudrate, timeout=timeout)
-        time.sleep(0.2)
+        self.ser = _ser or serial.Serial(port=port, baudrate=baudrate, timeout=timeout)
+        time.sleep(0.3)
         self.ser.reset_input_buffer()
         if not self.verify_password():
             raise FingerprintError("R307 password verify failed — check wiring/port")
 
+    @classmethod
+    def open(
+        cls,
+        port: str,
+        baudrate: int = 57600,
+        address: int = 0xFFFFFFFF,
+        password: int = 0x00000000,
+        timeout: float = 2.0,
+        try_bauds: tuple[int, ...] | None = None,
+    ) -> "R307":
+        """Open port; if preferred baud fails, try common R307 rates."""
+        bauds: list[int] = []
+        for b in (baudrate, *(try_bauds or (57600, 9600, 115200, 19200, 38400, 4800))):
+            if b not in bauds:
+                bauds.append(b)
+
+        last_err: Exception | None = None
+        for baud in bauds:
+            ser = None
+            try:
+                ser = serial.Serial(port=port, baudrate=baud, timeout=timeout)
+                time.sleep(0.3)
+                ser.reset_input_buffer()
+                sensor = cls(
+                    port=port,
+                    baudrate=baud,
+                    address=address,
+                    password=password,
+                    timeout=timeout,
+                    _ser=ser,
+                )
+                print(f"R307 linked OK on {port} @ {baud}")
+                return sensor
+            except Exception as exc:
+                last_err = exc
+                if ser is not None:
+                    try:
+                        ser.close()
+                    except Exception:
+                        pass
+                print(f"  try {port} @ {baud}: {exc}")
+
+        raise FingerprintError(
+            f"No reply from R307 on {port}. Last error: {last_err}\n{POWER_HINT}"
+        )
     def close(self) -> None:
         if self.ser and self.ser.is_open:
             self.ser.close()

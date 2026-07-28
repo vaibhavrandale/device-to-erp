@@ -20,7 +20,7 @@ DEFAULTS: dict[str, Any] = {
     "device_key": "",
     "latitude": None,
     "longitude": None,
-    "fingerprint_port": "/dev/serial0",
+    "fingerprint_port": "/dev/ttyUSB0",
     "fingerprint_baud": 57600,
     "fingerprint_address": "0xFFFFFFFF",
     "fingerprint_password": "0x00000000",
