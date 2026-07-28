@@ -136,10 +136,11 @@ class AttendanceMqtt:
                 "employee_id": str(doc.get("employee_id") or ""),
                 "employee_name": str(doc.get("employee_name") or ""),
                 "location": loc,
+                "finger": int(doc.get("finger") or 1),
                 "timeout_s": float(doc.get("timeout_s") or 60),
             }
             print(
-                f"Enroll requested"
+                f"Enroll requested finger={self.enroll_pending['finger']}/2"
                 f" employee={self.enroll_pending['employee_name'] or self.enroll_pending['employee_id'] or '?'}"
                 f" location={loc or 'auto'}"
             )
@@ -261,6 +262,7 @@ class AttendanceMqtt:
         hr_user_id: str = "",
         employee_id: str = "",
         message: str = "",
+        finger: int = 1,
     ) -> bool:
         payload: dict[str, Any] = {
             "a": "enroll_result",
@@ -273,6 +275,7 @@ class AttendanceMqtt:
             "card_id": card_id,
             "hr_user_id": hr_user_id,
             "employee_id": employee_id,
+            "finger": int(finger) if finger else 1,
             "message": message,
         }
         if location is not None:

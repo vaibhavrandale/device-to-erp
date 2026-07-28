@@ -11,15 +11,17 @@ Same MQTT attendance flow as `esp8266-attendance`, but fingerprint instead of RF
 
 100+ users is fine (sensor holds 1000). If you replace the R307 module, re-enroll users (or keep the same sensor hardware).
 
-### Enroll from HR UI
+### Two fingerprints per user
 
-1. Pi `main.py` running + device **online**
-2. HR Admin → Employees → Add/Edit → select reader → **Enroll Finger**
-3. Place finger **twice** on the sensor
-4. Form gets `FP####`; for existing employees DB is updated automatically
+Each employee should enroll **2 fingers** (safety / injury backup):
 
-API: `POST /api/v1/hr/attendance/fingerprint/enroll` `{ device_id, hr_user_id? }`
-MQTT: down `a:enroll` → up `a:enroll_result`
+| Slot | HR field | UI |
+|------|----------|-----|
+| Finger 1 | `rfid_card_id` | Enroll Finger 1 |
+| Finger 2 | `rfid_card_id_2` | Enroll Finger 2 |
+
+Both template ids live on the R307. Tap with **either** finger punches attendance.
+100 users × 2 fingers = 200 templates (sensor holds 1000).
 
 Edit always on the laptop in this folder. Never edit permanently on the Pi.
 
@@ -31,17 +33,28 @@ git commit -m "your message"
 git push
 ```
 
-**Raspberry Pi (to get latest code):**
+**Raspberry Pi — only reboot** (auto git pull + start app):
 ```bash
-cd ~/device-to-erp
-git pull
-# only if requirements.txt changed:
-source .venv/bin/activate
-pip install -r requirements.txt
-# restart app if running:
-# sudo systemctl restart taypro-fingerprint
-# or Ctrl+C and: python3 main.py
+sudo reboot
 ```
+
+### One-time auto-boot setup on Pi
+```bash
+cd ~/attendance-erp/device-to-erp   # your clone path
+git pull
+python3 scripts/install_service.py
+```
+
+Service: `taypro-fingerprint` → runs `scripts/boot_run.py` which does
+`git reset --hard origin/main`, installs deps, then starts `main.py`.
+
+```bash
+systemctl status taypro-fingerprint
+journalctl -u taypro-fingerprint -f
+tail -f data/boot_run.log
+```
+
+`config.json` / `data/` stay local (gitignored). Do not edit app code on the Pi.
 
 First-time Pi clone (once):
 ```bash

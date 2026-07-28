@@ -34,6 +34,9 @@ def run_remote_enroll(
     employee_id = str(job.get("employee_id") or "")
     employee_name = str(job.get("employee_name") or "")
     location = job.get("location")
+    finger = int(job.get("finger") or 1)
+    if finger not in (1, 2):
+        finger = 1
 
     try:
         if location is None:
@@ -44,16 +47,16 @@ def run_remote_enroll(
                 raise FingerprintError(f"location must be 1..{capacity}")
 
         label = employee_name or employee_id or f"#{location}"
-        print(f"UI enroll start → page {location} ({label})")
+        print(f"UI enroll finger {finger}/2 → page {location} ({label})")
         if oled and oled.ready:
-            oled.show_lines("ENROLL", label[:18], "Place finger 1/2")
+            oled.show_lines(f"ENROLL {finger}/2", label[:18], "Place finger 1/2")
 
         sensor.enroll(location, timeout_s=timeout_s)
         card_id = finger_id_to_card(location)
-        msg = f"Enrolled {card_id}"
+        msg = f"Finger {finger}/2 enrolled as {card_id}"
         print(msg)
         if oled and oled.ready:
-            oled.show_lines("ENROLLED", card_id, label[:18])
+            oled.show_lines("ENROLLED", f"{finger}/2 {card_id}", label[:18])
 
         mqtt.send_enroll_result(
             ok=True,
@@ -62,6 +65,7 @@ def run_remote_enroll(
             hr_user_id=hr_user_id,
             employee_id=employee_id,
             message=msg,
+            finger=finger,
         )
         return True
     except Exception as exc:
@@ -76,5 +80,6 @@ def run_remote_enroll(
             hr_user_id=hr_user_id,
             employee_id=employee_id,
             message=err,
+            finger=finger,
         )
         return False
