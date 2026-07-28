@@ -275,8 +275,39 @@ class OledDisplay:
         self.show_error(704, "NO MATCH", "Finger not in sensor. Enroll from HR UI.", "Finger 1 or 2")
 
     def show_enroll(self, finger: int, name: str, step: str) -> None:
-        self.show_lines(f"ENROLL {finger}/2", self._truncate(name, 21), step, "Wait for prompts")
-        self._mark_temp(2.0)
+        """Live enroll coach for remote OLED (no monitor)."""
+        if not self.ready:
+            return
+        # Don't use temp timer — stay on this screen until next step
+        self.showing_tap = True
+        self.tap_until = time.monotonic() + 120.0
+        title = f"ENROLL {finger}/2"
+        name_line = self._truncate(name or "", 21)
+        step_key = (step or "").lower()
+
+        if step_key in ("place1", "place"):
+            big, hint = "PLACE FINGER", "Scan 1 of 2 — press down"
+        elif step_key == "got1":
+            big, hint = "GOT IT!", "Hold still..."
+        elif step_key in ("remove", "lift"):
+            big, hint = "REMOVE FINGER", "Lift off the sensor"
+        elif step_key == "place2":
+            big, hint = "PLACE AGAIN", "Same finger — scan 2/2"
+        elif step_key == "got2":
+            big, hint = "GOT IT!", "Saving template..."
+        elif step_key == "saving":
+            big, hint = "SAVING...", "Please wait"
+        else:
+            big, hint = self._truncate(step, 14), ""
+
+        with self._canvas() as draw:
+            self._centered(draw, title, 0)
+            draw.line((0, 10, self.width - 1, 10), fill=1)
+            if name_line:
+                self._centered(draw, name_line, 14)
+            self._centered(draw, big, 28, self._font_lg)
+            if hint:
+                self._centered(draw, self._truncate(hint, 21), 50)
 
 
 def create_oled(cfg: dict) -> Optional[OledDisplay]:

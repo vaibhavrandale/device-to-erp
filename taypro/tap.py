@@ -4,6 +4,7 @@ import time
 from typing import Optional
 
 from .fingerprint import finger_id_to_fp
+from .logger import device_log
 from .mqtt_client import AttendanceMqtt
 from .oled import OledDisplay
 from .storage import DeviceStorage
@@ -61,21 +62,27 @@ class TapHandler:
         self.last_ms = now
 
         print(f"Finger match template={template_id} → {fp_id}")
+        device_log.log(f"Finger punch — {fp_id}")
         if self.oled:
             self.oled.show_processing(fp_id)
         try:
             if not self.mqtt.send_punch(fp_id):
                 print("[ERR-702] SEND FAILED")
+                device_log.problem("Punch", "MQTT publish failed")
                 if self.oled:
                     self.oled.show_error(702, "SEND FAILED", "Could not publish punch", fp_id)
                 return True
             if not self.mqtt.wait_tap(self.response_timeout_s):
                 print("[ERR-703] NO RESPONSE — server did not reply in time")
+                device_log.problem("Punch", "Server timeout")
                 if self.oled:
                     self.oled.show_error(703, "NO RESPONSE", "Server timeout — try again", fp_id)
                 return True
             if self.mqtt.tap_ok:
                 print(
+                    f"Punch OK — {self.mqtt.tap_employee} ({self.mqtt.tap_punch_type or 'punch'})"
+                )
+                device_log.log(
                     f"Punch OK — {self.mqtt.tap_employee} ({self.mqtt.tap_punch_type or 'punch'})"
                 )
                 if self.oled:
@@ -88,6 +95,7 @@ class TapHandler:
             else:
                 msg = self.mqtt.tap_message or "Rejected by server"
                 print(f"[ERR-704] PUNCH FAILED — {msg}")
+                device_log.problem("Punch", msg)
                 if self.oled:
                     title = "NOT FOUND" if "not registered" in msg.lower() else "REJECTED"
                     self.oled.show_error(704, title, msg, fp_id)

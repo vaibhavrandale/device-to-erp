@@ -233,15 +233,32 @@ class R307:
         if code != OK:
             raise FingerprintError(f"image2tz({slot}) failed code=0x{code:02x}")
 
-    def enroll(self, location: int, timeout_s: float = 30.0) -> int:
-        """Two-scan enroll into sensor flash at page id `location`. Returns location."""
-        print(f"Place finger for enroll #{location} (scan 1)...")
+    def enroll(self, location: int, timeout_s: float = 30.0, on_step=None) -> int:
+        """Two-scan enroll into sensor flash at page id `location`. Returns location.
+
+        on_step(step: str) optional — called with place1|got1|remove|place2|got2|saving
+        """
+        def step(name: str) -> None:
+            print(f"enroll[{location}] {name}")
+            if on_step:
+                on_step(name)
+
+        step("place1")
         self.capture_to_slot(1, timeout_s)
-        print("Remove finger...")
-        self.wait_finger(False, timeout_s)
-        time.sleep(0.4)
-        print("Place same finger again (scan 2)...")
+        step("got1")
+        time.sleep(0.25)
+
+        step("remove")
+        if not self.wait_finger(False, timeout_s):
+            raise FingerprintError("Timeout — lift finger off the sensor")
+        time.sleep(0.5)
+
+        step("place2")
         self.capture_to_slot(2, timeout_s)
+        step("got2")
+        time.sleep(0.2)
+
+        step("saving")
         code = self.create_model()
         if code != OK:
             raise FingerprintError(f"create_model failed code=0x{code:02x}")

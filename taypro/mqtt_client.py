@@ -287,6 +287,21 @@ class AttendanceMqtt:
             payload["location"] = location
         return self.publish_up(payload)
 
+    def send_logs(self, *, boot_id: int, lines: list[dict[str, Any]]) -> bool:
+        """Same shape as ESP DeviceLogger → processDeviceLogs."""
+        if not lines:
+            return True
+        return self.publish_up(
+            {
+                "a": "log",
+                "hw": self.hw,
+                "d": self.storage.device_id,
+                "k": self.storage.device_key,
+                "boot_id": int(boot_id),
+                "lines": lines,
+            }
+        )
+
     def wait_register(self, timeout_s: float) -> bool:
         deadline = time.monotonic() + timeout_s
         while time.monotonic() < deadline:

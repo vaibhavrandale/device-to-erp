@@ -38,6 +38,10 @@ def run_remote_enroll(
     if finger not in (1, 2):
         finger = 1
 
+    def show(step: str) -> None:
+        if oled and oled.ready:
+            oled.show_enroll(finger, label, step)
+
     try:
         if location is None:
             location = next_template_id(sensor, capacity)
@@ -48,10 +52,10 @@ def run_remote_enroll(
 
         label = employee_name or employee_id or f"#{location}"
         print(f"UI enroll finger {finger}/2 → page {location} ({label})")
-        if oled and oled.ready:
-            oled.show_enroll(finger, label, "Place finger — scan 1 of 2")
+        show("place1")
 
-        sensor.enroll(location, timeout_s=timeout_s)
+        sensor.enroll(location, timeout_s=timeout_s, on_step=show)
+
         fp_id = finger_id_to_fp(location)
         msg = f"Finger {finger}/2 enrolled as {fp_id}"
         print(msg)

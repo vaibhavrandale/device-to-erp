@@ -11,6 +11,7 @@ from taypro.boot import boot_register
 from taypro.config import load_config, parse_u32
 from taypro.enroll_remote import run_remote_enroll
 from taypro.fingerprint import R307, FingerprintError, finger_id_to_fp
+from taypro.logger import device_log
 from taypro.mqtt_client import AttendanceMqtt
 from taypro.oled import create_oled
 from taypro.storage import DeviceStorage, hardware_id
@@ -26,10 +27,17 @@ def main() -> int:
     print(f"MQTT {cfg['mqtt_host']}:{cfg['mqtt_port']}")
     print(f"UART {cfg['fingerprint_port']} @ {cfg['fingerprint_baud']}")
 
+    device_log.log(
+        f"Boot #{device_log.boot_id} — Fingerprint device started | HW {hw}"
+    )
+
     oled = create_oled(cfg)
     if oled and oled.ready:
         oled.show_splash()
         time.sleep(1.0)
+        device_log.log("OLED OK")
+    else:
+        device_log.problem("OLED", "Display not detected — continuing headless")
 
     mqtt = AttendanceMqtt(
         host=cfg["mqtt_host"],
@@ -38,6 +46,7 @@ def main() -> int:
         topic_down_prefix=cfg["topic_down_hw_prefix"],
         storage=storage,
     )
+    device_log.bind_mqtt(mqtt, sync_interval_s=float(cfg.get("log_sync_interval_s") or 10))
 
     stop = False
 
@@ -52,22 +61,25 @@ def main() -> int:
         oled.show_boot("..", "  ", "  ", "Connecting cloud...", device_id=storage.device_id)
 
     if not mqtt.connect(timeout_s=20):
-        print("[ERR-402] Could not connect MQTT — check broker / network")
+        device_log.problem("MQTT", f"Broker unreachable {cfg['mqtt_host']}:{cfg['mqtt_port']}")
         if oled and oled.ready:
             oled.show_error(402, "MQTT FAIL", "Cannot reach broker. Check WiFi/IP.", cfg["mqtt_host"])
         return 1
 
+    device_log.log("MQTT OK — Cloud server connected")
     ip = mqtt._local_ip()
     if oled and oled.ready:
         oled.set_status_meta(ip=ip, extra=f"hw:{hw[-6:]}")
         oled.show_boot("OK", "OK", "..", "Registering...", ip=ip, device_id=storage.device_id)
 
     if not boot_register(mqtt, storage, timeout_s=float(cfg["register_timeout_s"])):
-        print("[ERR-601] Boot register incomplete — will keep running; fix HR/broker")
+        device_log.problem("Register", "Boot register incomplete — retrying later")
         if oled and oled.ready:
             oled.show_boot("OK", "OK", "!!", "Register failed", ip=ip, device_id=storage.device_id)
     else:
+        device_log.log(f"Register OK — device id {storage.device_id}")
         mqtt.send_heartbeat()
+        device_log.sync(force=True)
         if oled and oled.ready:
             oled.show_register_result(
                 False,
@@ -84,7 +96,7 @@ def main() -> int:
             password=parse_u32(cfg.get("fingerprint_password"), 0),
         )
     except (FingerprintError, OSError) as exc:
-        print(f"[ERR-201] Fingerprint sensor: {exc}")
+        device_log.problem("Sensor", str(exc))
         if oled and oled.ready:
             oled.show_error(201, "SENSOR FAIL", str(exc), cfg["fingerprint_port"])
         mqtt.disconnect()
@@ -93,9 +105,11 @@ def main() -> int:
     try:
         params = sensor.read_sys_params()
         templates = sensor.template_count()
-        print(f"R307 OK capacity={params['capacity']} templates={templates}")
+        device_log.log(
+            f"R307 OK capacity={params['capacity']} templates={templates} port={cfg['fingerprint_port']}"
+        )
     except FingerprintError as exc:
-        print(f"[ERR-201] R307 sys read failed: {exc}")
+        device_log.problem("Sensor", str(exc))
         if oled and oled.ready:
             oled.show_error(201, "SENSOR FAIL", str(exc))
         sensor.close()
@@ -116,8 +130,8 @@ def main() -> int:
     poll_s = float(cfg["scan_poll_s"])
     capacity = int(params["capacity"] or 200)
 
-    print("Ready — scan finger")
-    print(f"Fingerprint id example: {finger_id_to_fp(1)}")
+    device_log.log("Ready — fingerprint scanner online, waiting for scans")
+    device_log.sync(force=True)
     if oled and oled.ready:
         oled.showing_tap = False
         oled.set_status_meta(ip=ip, extra=f"hw:{hw[-6:]}")
@@ -134,6 +148,7 @@ def main() -> int:
     try:
         while not stop:
             if not mqtt.connected():
+                device_log.problem("MQTT", "Disconnected — reconnecting")
                 if oled and oled.ready:
                     oled.show_boot(
                         "OK",
@@ -153,6 +168,8 @@ def main() -> int:
                 ip = mqtt._local_ip()
                 if oled and oled.ready:
                     oled.set_status_meta(ip=ip, extra=f"hw:{hw[-6:]}")
+
+            device_log.sync(force=False)
 
             if oled and oled.ready:
                 oled.poll_clear_temp(storage, mqtt_ok=mqtt.connected())
@@ -174,13 +191,19 @@ def main() -> int:
                 mqtt.enroll_pending = None
                 wait_lift = True
                 lift_streak = 0
-                run_remote_enroll(
+                who = job.get("employee_name") or job.get("employee_id") or "?"
+                device_log.log(
+                    f"Enroll start finger={job.get('finger') or 1}/2 employee={who}"
+                )
+                ok = run_remote_enroll(
                     sensor,
                     mqtt,
                     job,
                     capacity=capacity,
                     oled=oled if (oled and oled.ready) else None,
                 )
+                device_log.log("Enroll OK" if ok else "Enroll failed")
+                device_log.sync(force=True)
                 time.sleep(poll_s)
                 continue
 
@@ -193,7 +216,6 @@ def main() -> int:
                             if lift_streak >= 5:
                                 wait_lift = False
                                 lift_streak = 0
-                                print("Finger lifted — ready for next scan")
                         else:
                             lift_streak = 0
                     elif img == 0x00:
@@ -203,19 +225,23 @@ def main() -> int:
                                 wait_lift = True
                                 lift_streak = 0
                                 tap.handle_template(page)
+                                device_log.sync(force=True)
                             else:
-                                print("Finger seen — no match in sensor library")
+                                device_log.log("Finger seen — no match in sensor library")
                                 if oled and oled.ready:
                                     oled.show_no_match()
                                 wait_lift = True
                                 lift_streak = 0
+                                device_log.sync(force=True)
                 except FingerprintError as exc:
-                    print(f"Scan error: {exc}")
+                    device_log.problem("Scan", str(exc))
                     if oled and oled.ready:
                         oled.show_error(201, "SCAN ERR", str(exc))
 
             time.sleep(poll_s)
     finally:
+        device_log.log("Stopped")
+        device_log.sync(force=True)
         sensor.close()
         mqtt.disconnect()
         if oled and oled.ready:
