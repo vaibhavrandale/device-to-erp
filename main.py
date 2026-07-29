@@ -11,6 +11,7 @@ from taypro.boot import boot_register
 from taypro.config import load_config, parse_u32
 from taypro.enroll_remote import run_remote_enroll
 from taypro.fingerprint import R307, FingerprintError, finger_id_to_fp
+from taypro.leds import create_leds
 from taypro.logger import device_log
 from taypro.mqtt_client import AttendanceMqtt
 from taypro.oled import create_oled
@@ -32,6 +33,7 @@ def main() -> int:
     )
 
     oled = create_oled(cfg)
+    leds = create_leds(cfg)
     if oled and oled.ready:
         oled.show_splash()
         time.sleep(1.0)
@@ -62,11 +64,16 @@ def main() -> int:
 
     if not mqtt.connect(timeout_s=20):
         device_log.problem("MQTT", f"Broker unreachable {cfg['mqtt_host']}:{cfg['mqtt_port']}")
+        if leds:
+            leds.trigger_fail()
+            leds.update(mqtt_ok=False, connecting=False)
         if oled and oled.ready:
             oled.show_error(402, "MQTT FAIL", "Cannot reach broker. Check WiFi/IP.", cfg["mqtt_host"])
         return 1
 
     device_log.log("MQTT OK — Cloud server connected")
+    if leds:
+        leds.update(mqtt_ok=True)
     ip = mqtt._local_ip()
     if oled and oled.ready:
         oled.set_status_meta(ip=ip, extra=f"hw:{hw[-6:]}")
@@ -122,6 +129,7 @@ def main() -> int:
         debounce_s=float(cfg["finger_debounce_s"]),
         response_timeout_s=float(cfg["tap_response_timeout_s"]),
         oled=oled if (oled and oled.ready) else None,
+        leds=leds,
     )
 
     last_heartbeat = time.monotonic()
@@ -149,6 +157,8 @@ def main() -> int:
         while not stop:
             if not mqtt.connected():
                 device_log.problem("MQTT", "Disconnected — reconnecting")
+                if leds:
+                    leds.update(mqtt_ok=False, connecting=True)
                 if oled and oled.ready:
                     oled.show_boot(
                         "OK",
@@ -162,6 +172,9 @@ def main() -> int:
                 continue
 
             now = time.monotonic()
+            if leds:
+                leds.update(mqtt_ok=True, connecting=False)
+
             if now - last_heartbeat >= heartbeat_s:
                 mqtt.send_heartbeat()
                 last_heartbeat = now
@@ -228,6 +241,8 @@ def main() -> int:
                                 device_log.sync(force=True)
                             else:
                                 device_log.log("Finger seen — no match in sensor library")
+                                if leds:
+                                    leds.trigger_fail()
                                 if oled and oled.ready:
                                     oled.show_no_match()
                                 wait_lift = True
@@ -235,6 +250,8 @@ def main() -> int:
                                 device_log.sync(force=True)
                 except FingerprintError as exc:
                     device_log.problem("Scan", str(exc))
+                    if leds:
+                        leds.trigger_fail()
                     if oled and oled.ready:
                         oled.show_error(201, "SCAN ERR", str(exc))
 
@@ -244,6 +261,8 @@ def main() -> int:
         device_log.sync(force=True)
         sensor.close()
         mqtt.disconnect()
+        if leds:
+            leds.close()
         if oled and oled.ready:
             oled.show_lines("STOPPED", "Service ended", "Reboot to restart")
         print("Stopped")

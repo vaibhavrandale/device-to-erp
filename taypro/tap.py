@@ -4,6 +4,7 @@ import time
 from typing import Optional
 
 from .fingerprint import finger_id_to_fp
+from .leds import StatusLeds
 from .logger import device_log
 from .mqtt_client import AttendanceMqtt
 from .oled import OledDisplay
@@ -20,12 +21,14 @@ class TapHandler:
         debounce_s: float = 2.0,
         response_timeout_s: float = 12.0,
         oled: Optional[OledDisplay] = None,
+        leds: Optional[StatusLeds] = None,
     ):
         self.mqtt = mqtt
         self.storage = storage
         self.debounce_s = debounce_s
         self.response_timeout_s = response_timeout_s
         self.oled = oled
+        self.leds = leds
         self.last_fp: Optional[str] = None
         self.last_ms = 0.0
         self.in_flight = False
@@ -47,16 +50,22 @@ class TapHandler:
 
         if not self.storage.is_registered():
             print("[ERR-701] NOT READY — register incomplete")
+            if self.leds:
+                self.leds.trigger_fail()
             if self.oled:
                 self.oled.show_error(701, "NOT READY", "Device not registered to cloud")
             return False
         if not self.storage.has_location():
             print("[ERR-706] NO LOCATION — set lat/lng in HR dashboard")
+            if self.leds:
+                self.leds.trigger_fail()
             if self.oled:
                 self.oled.show_error(706, "NO LOCATION", "Set device lat/lng in HR")
             return False
         if not self.mqtt.connected():
             print("[ERR-702] MQTT not connected")
+            if self.leds:
+                self.leds.trigger_fail()
             if self.oled:
                 self.oled.show_error(702, "NO CLOUD", "MQTT disconnected — check network")
             return False
@@ -73,12 +82,16 @@ class TapHandler:
             if not self.mqtt.send_punch(fp_id):
                 print("[ERR-702] SEND FAILED")
                 device_log.problem("Punch", "MQTT publish failed")
+                if self.leds:
+                    self.leds.trigger_fail()
                 if self.oled:
                     self.oled.show_error(702, "SEND FAILED", "Could not publish punch", fp_id)
                 return True
             if not self.mqtt.wait_tap(self.response_timeout_s):
                 print("[ERR-703] NO RESPONSE — server did not reply in time")
                 device_log.problem("Punch", "Server timeout")
+                if self.leds:
+                    self.leds.trigger_fail()
                 if self.oled:
                     self.oled.show_error(703, "NO RESPONSE", "Server timeout — try again", fp_id)
                 return True
@@ -89,6 +102,8 @@ class TapHandler:
                 device_log.log(
                     f"Punch OK — {self.mqtt.tap_employee} ({self.mqtt.tap_punch_type or 'punch'})"
                 )
+                if self.leds:
+                    self.leds.trigger_ok()
                 if self.oled:
                     self.oled.show_punch_ok(
                         self.mqtt.tap_employee,
@@ -99,6 +114,8 @@ class TapHandler:
                 msg = self.mqtt.tap_message or "Rejected by server"
                 print(f"[ERR-704] PUNCH FAILED — {msg}")
                 device_log.problem("Punch", msg)
+                if self.leds:
+                    self.leds.trigger_fail()
                 if self.oled:
                     lower = msg.lower()
                     if "not registered" in lower or "fingerprint" in lower:

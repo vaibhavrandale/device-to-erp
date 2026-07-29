@@ -127,6 +127,18 @@ OLED 1.30" IIC V2.2 (4 pins): VCC / GND / SCL / SDA
 | SCL | Pin 5 (GPIO3) |
 | SDA | Pin 3 (GPIO2) |
 
+### Status LEDs (3)
+
+| LED | Meaning | BCM GPIO | Physical pin |
+|-----|---------|----------|--------------|
+| 1 Net | WiFi+MQTT OK solid / blink while connecting | **17** | **11** |
+| 2 OK | Punch success (3s) | **27** | **13** |
+| 3 Fail | Punch fail / not enrolled (4s) | **22** | **15** |
+
+Wiring each LED: **GPIO → 220Ω → LED anode → LED cathode → GND**.
+
+Change pins in `config.json`: `led_net_pin`, `led_ok_pin`, `led_fail_pin`.
+
 Enable I2C once:
 ```bash
 sudo raspi-config
