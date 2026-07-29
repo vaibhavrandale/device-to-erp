@@ -38,7 +38,11 @@ class TapHandler:
         if self.in_flight:
             return False
         if self.last_ms and (now - self.last_ms) < self.cooldown_s:
-            print(f"Punch ignored — cooldown {self.cooldown_s:.0f}s")
+            left = self.cooldown_s - (now - self.last_ms)
+            print(f"Punch ignored — cooldown {left:.0f}s left")
+            device_log.log(f"Finger ignored — wait {left:.0f}s")
+            if self.oled:
+                self.oled.show_ignored(left)
             return False
 
         if not self.storage.is_registered():
@@ -90,15 +94,22 @@ class TapHandler:
                         self.mqtt.tap_employee,
                         self.mqtt.tap_punch_type,
                         fp_id=fp_id,
-                        message=self.mqtt.tap_message,
                     )
             else:
                 msg = self.mqtt.tap_message or "Rejected by server"
                 print(f"[ERR-704] PUNCH FAILED — {msg}")
                 device_log.problem("Punch", msg)
                 if self.oled:
-                    title = "NOT FOUND" if "not registered" in msg.lower() else "REJECTED"
-                    self.oled.show_error(704, title, msg, fp_id)
+                    lower = msg.lower()
+                    if "not registered" in lower or "fingerprint" in lower:
+                        self.oled.show_error(
+                            704,
+                            "NOT ENROLLED",
+                            "Finger not linked to any employee",
+                            "Ask HR to enroll",
+                        )
+                    else:
+                        self.oled.show_error(704, "REJECTED", msg, fp_id)
             return True
         finally:
             self.mqtt.reset_tap_wait()

@@ -166,12 +166,12 @@ class OledDisplay:
         with self._canvas() as draw:
             self._centered(draw, "BOOT", 0)
             draw.line((0, 10, self.width - 1, 10), fill=1)
-            draw.text((0, 12), f"Net [{wifi}]  Mqtt [{cloud}]", font=self._font, fill=1)
-            draw.text((0, 24), f"Reg [{reg}] {self._truncate(device_id, 12)}", font=self._font, fill=1)
-            if ip:
-                draw.text((0, 36), self._truncate(f"IP {ip}", 21), font=self._font, fill=1)
-            draw.line((0, 48, self.width - 1, 48), fill=1)
-            self._centered(draw, self._truncate(status, 21), 52)
+            draw.text((0, 14), f"Net [{wifi}]   Mqtt [{cloud}]", font=self._font, fill=1)
+            draw.text((0, 28), f"Reg [{reg}]", font=self._font, fill=1)
+            if device_id:
+                draw.text((0, 40), self._truncate(device_id, 21), font=self._font, fill=1)
+            draw.line((0, 52, self.width - 1, 52), fill=1)
+            self._centered(draw, self._truncate(status, 21), 54)
 
     def show_register_result(self, created: bool, device_id: str, message: str = "") -> None:
         if not self.ready:
@@ -199,28 +199,21 @@ class OledDisplay:
         cloud = "OK" if mqtt_ok else "--"
         clock = datetime.now().strftime("%H:%M:%S")
         ident = storage.device_id if storage.is_registered() else f"HW-{hardware_id()[-6:]}"
-        loc = "LOC OK" if storage.has_location() else "NO LOC"
-        ip = self._status_ip or "-"
+        loc = "OK" if storage.has_location() else "--"
         with self._canvas() as draw:
-            draw.text((0, 0), f"W:{wifi} M:{cloud} {loc}", font=self._font, fill=1)
+            # spaced status row
+            draw.text((0, 0), f"W:{wifi}   M:{cloud}   L:{loc}", font=self._font, fill=1)
             draw.line((0, 10, self.width - 1, 10), fill=1)
             self._centered(draw, clock, 12, self._font_lg)
             draw.rectangle((10, 30, self.width - 10, 44), outline=1, fill=0)
             self._centered(draw, "SCAN FINGER", 32)
-            draw.text((0, 46), self._truncate(ident, 21), font=self._font, fill=1)
-            extra = self._status_extra
+            bottom = ident
             if templates is not None:
-                extra = f"FP:{templates} {extra}".strip()
-            draw.text(
-                (0, 56),
-                self._truncate(f"{ip} {extra}".strip(), 21),
-                font=self._font,
-                fill=1,
-            )
+                bottom = f"{ident}  FP:{templates}"
+            self._centered(draw, self._truncate(bottom, 21), 52)
 
     def show_processing(self, fp_id: str) -> None:
-        now = datetime.now().strftime("%H:%M:%S")
-        self.show_lines("MATCHED", fp_id, "Sending punch...", now)
+        self.show_lines("MATCHED", fp_id, "Sending punch...")
         self._mark_temp(self.tap_screen_s)
 
     def show_punch_ok(
@@ -237,22 +230,13 @@ class OledDisplay:
         self._mark_temp(self.tap_screen_s)
         punch = self._punch_label(punch_type) or "OK"
         name = employee_name or "-"
-        now = datetime.now().strftime("%H:%M:%S")
         with self._canvas() as draw:
-            self._centered(draw, punch, 0, self._font_lg)
-            draw.line((0, 16, self.width - 1, 16), fill=1)
+            self._centered(draw, punch, 4, self._font_lg)
+            draw.line((0, 22, self.width - 1, 22), fill=1)
             for i, line in enumerate(self._wrap(name, 16, 2)):
-                self._centered(draw, line, 18 + i * 12, self._font_lg if i == 0 else self._font)
-            y = 42
-            if employee_id:
-                draw.text((0, y), self._truncate(employee_id, 21), font=self._font, fill=1)
-                y = 52
-            detail = " ".join(x for x in (fp_id, now) if x)
-            if message and not employee_id:
-                detail = self._truncate(message, 21)
-            self._centered(draw, self._truncate(detail, 21), 54 if y == 42 else 54)
+                self._centered(draw, line, 28 + i * 14, self._font_lg if i == 0 else self._font)
+            # no bottom duplicate punch text
 
-    # keep old name for callers
     def show_tap_ok(self, employee_name: str, punch_type: str, **kwargs) -> None:
         self.show_punch_ok(employee_name, punch_type, **kwargs)
 
@@ -264,7 +248,7 @@ class OledDisplay:
         with self._canvas() as draw:
             self._centered(draw, title or "ERROR", 0)
             draw.line((0, 10, self.width - 1, 10), fill=1)
-            draw.text((0, 12), f"ERR {code}  {now}", font=self._font, fill=1)
+            draw.text((0, 12), now, font=self._font, fill=1)
             for i, line in enumerate(self._wrap(detail, 21, 3)):
                 draw.text((0, 24 + i * 10), line, font=self._font, fill=1)
             if extra:
@@ -272,7 +256,24 @@ class OledDisplay:
                 self._centered(draw, self._truncate(extra, 21), 56)
 
     def show_no_match(self) -> None:
-        self.show_error(704, "NO MATCH", "Finger not in sensor. Enroll from HR UI.", "Finger 1 or 2")
+        self.show_error(
+            704,
+            "UNKNOWN FINGER",
+            "Not enrolled on this device",
+            "Contact HR admin",
+        )
+
+    def show_ignored(self, seconds_left: float) -> None:
+        """Cooldown on OLED when punch is ignored (cooldown)."""
+        if not self.ready:
+            return
+        left = max(1, int(seconds_left + 0.5))
+        self._mark_temp(2.0)
+        with self._canvas() as draw:
+            self._centered(draw, "PLEASE WAIT", 8, self._font_lg)
+            draw.line((0, 28, self.width - 1, 28), fill=1)
+            self._centered(draw, f"Try again in {left}s", 36)
+            self._centered(draw, "Finger ignored", 50)
 
     def show_enroll(self, finger: int, name: str, step: str) -> None:
         """Live enroll coach for remote OLED (no monitor)."""
