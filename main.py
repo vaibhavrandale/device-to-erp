@@ -49,6 +49,7 @@ def main() -> int:
         storage=storage,
         username=cfg.get("mqtt_username", ""),
         password=cfg.get("mqtt_password", ""),
+        tls=bool(cfg.get("mqtt_tls")),
     )
     device_log.bind_mqtt(mqtt, sync_interval_s=float(cfg.get("log_sync_interval_s") or 10))
 

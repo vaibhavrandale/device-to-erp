@@ -24,7 +24,15 @@ def check_normalization() -> None:
     # mqtts scheme flags tls
     got3 = normalize_broker({"mqtt_host": "mqtts://h:8883"})
     assert got3["mqtt_port"] == 8883 and got3.get("mqtt_tls") is True
-    print("[ok] broker normalization")
+    # Amazon MQ endpoint form: mqtt+ssl scheme must flag tls
+    aws = normalize_broker(
+        {"mqtt_host": "mqtt+ssl://b-abc-1.mq.ap-south-1.amazonaws.com:8883"}
+    )
+    assert aws["mqtt_host"] == "b-abc-1.mq.ap-south-1.amazonaws.com", aws["mqtt_host"]
+    assert aws["mqtt_port"] == 8883 and aws["mqtt_tls"] is True
+    # TLS without an explicit port must not sit on the plaintext 1883 default
+    assert normalize_broker({"mqtt_host": "mqtts://h", "mqtt_port": 1883})["mqtt_port"] == 8883
+    print("[ok] broker normalization (incl. Amazon MQ mqtt+ssl)")
 
 
 def check_auth_applied() -> None:
@@ -41,11 +49,24 @@ def check_auth_applied() -> None:
         storage=storage,
         username=cfg["mqtt_username"],
         password=cfg["mqtt_password"],
+        tls=bool(cfg.get("mqtt_tls")),
     )
     # paho stores creds on the underlying client (1.x: _username, 2.x: _username bytes)
     uname = getattr(client.client, "_username", None)
     assert uname in ("chirpstack", b"chirpstack"), uname
     print("[ok] username/password applied to paho client")
+
+    # tls=True must actually arm TLS on the socket, not just set a config flag
+    tls_client = AttendanceMqtt(
+        host="b-abc-1.mq.ap-south-1.amazonaws.com",
+        port=8883,
+        topic_up=cfg["topic_up"],
+        topic_down_prefix=cfg["topic_down_hw_prefix"],
+        storage=storage,
+        tls=True,
+    )
+    assert getattr(tls_client.client, "_ssl_context", None) is not None, "TLS not armed"
+    print("[ok] mqtt_tls arms TLS on the paho client")
     return cfg, storage
 
 

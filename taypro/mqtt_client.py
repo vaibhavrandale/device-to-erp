@@ -22,6 +22,7 @@ class AttendanceMqtt:
         on_message: Optional[Callable[[dict[str, Any]], None]] = None,
         username: str = "",
         password: str = "",
+        tls: bool = False,
     ):
         self.host = host
         self.port = port
@@ -42,6 +43,10 @@ class AttendanceMqtt:
             self.client = mqtt.Client(client_id=client_id)
         if username:
             self.client.username_pw_set(username, password or None)
+        if tls:
+            # System CA bundle: enough for managed brokers (Amazon MQ / AWS IoT),
+            # which present a publicly trusted certificate.
+            self.client.tls_set()
         self.client.on_connect = self._on_connect
         self.client.on_disconnect = self._on_disconnect
         self.client.on_message = self._on_mqtt_message

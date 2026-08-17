@@ -42,7 +42,7 @@ def log(msg: str) -> None:
         pass
 
 
-def run(cmd: list[str], cwd: Path | None = None, check: bool = False) -> int:
+def run(cmd: list[str], cwd: Path | None = None, check: bool = False, timeout: int = 300) -> int:
     log("$ " + " ".join(cmd))
     try:
         p = subprocess.run(
@@ -51,6 +51,10 @@ def run(cmd: list[str], cwd: Path | None = None, check: bool = False) -> int:
             check=check,
             text=True,
             capture_output=True,
+            # A credential prompt on the private repo would block forever, and systemd
+            # never restarts a hung process. Fail fast instead and run existing code.
+            env={**os.environ, "GIT_TERMINAL_PROMPT": "0"},
+            timeout=timeout,
         )
         if p.stdout:
             log(p.stdout.strip())
@@ -96,50 +100,39 @@ def restart_self_if_updated(before: bytes) -> None:
     os.execv(sys.executable, [sys.executable, str(SELF)])
 
 
-# Server-side settings: always come from git so a remote device picks up broker
-# moves / credential rotations on reboot. Device identity (device_id, device_key,
-# latitude, longitude) lives in data/device.cfg, and local hardware settings
-# (UART port, OLED driver, LED pins) stay in config.json untouched.
-BROKER_KEYS = (
-    "mqtt_host",
-    "mqtt_port",
-    "mqtt_username",
-    "mqtt_password",
-    "topic_up",
-    "topic_down_hw_prefix",
-)
-
-
-def sync_broker_settings() -> None:
+def sync_deployed_config() -> None:
+    """Merge every tracked setting into the Pi's gitignored config.json."""
     cfg_path = ROOT / "config.json"
-    example_path = ROOT / "config.example.json"
-    if not example_path.exists():
+    deploy_path = ROOT / "config.deploy.json"
+    if not deploy_path.exists():
         return
     try:
-        example = json.loads(example_path.read_text(encoding="utf-8"))
+        deployed = json.loads(deploy_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
-        log(f"config.example.json unreadable ({exc}) - keeping existing config.json")
+        log(f"config.deploy.json unreadable ({exc}) - keeping existing config.json")
         return
 
     if not cfg_path.exists():
-        cfg_path.write_text(json.dumps(example, indent=2) + "\n", encoding="utf-8")
-        log("created config.json from example")
+        cfg_path.write_text(json.dumps(deployed, indent=2) + "\n", encoding="utf-8")
+        log("created config.json from deployed config")
         return
 
     try:
         cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
-        log(f"config.json unreadable ({exc}) - recreating from example")
-        cfg_path.write_text(json.dumps(example, indent=2) + "\n", encoding="utf-8")
+        log(f"config.json unreadable ({exc}) - recreating from deployed config")
+        cfg_path.write_text(json.dumps(deployed, indent=2) + "\n", encoding="utf-8")
         return
 
-    changed = [k for k in BROKER_KEYS if k in example and cfg.get(k) != example[k]]
+    changed = [
+        key for key, value in deployed.items() if key not in cfg or cfg[key] != value
+    ]
     if not changed:
         return
     for key in changed:
-        cfg[key] = example[key]
+        cfg[key] = deployed[key]
     cfg_path.write_text(json.dumps(cfg, indent=2) + "\n", encoding="utf-8")
-    log(f"config.json broker settings updated from git: {', '.join(changed)}")
+    log(f"config.json updated from repo: {', '.join(changed)}")
 
 
 def ensure_venv_deps() -> Path:
@@ -175,7 +168,7 @@ def main() -> int:
         log(f"missing {MAIN}")
         return 1
 
-    sync_broker_settings()
+    sync_deployed_config()
 
     log(f"exec {py} {MAIN}")
     # Replace this process so systemd tracks main.py

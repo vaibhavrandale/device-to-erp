@@ -15,6 +15,7 @@ DEFAULTS: dict[str, Any] = {
     "mqtt_port": 1883,
     "mqtt_username": "",
     "mqtt_password": "",
+    "mqtt_tls": False,
     "topic_up": "hr/attendance/up",
     "topic_down_hw_prefix": "hr/attendance/down/hw/",
     "device_id": "unassigned",
@@ -50,23 +51,34 @@ DEFAULTS: dict[str, Any] = {
 }
 
 
+# Schemes that mean "wrap the connection in TLS". mqtt+ssl is the form Amazon MQ
+# publishes, e.g. mqtt+ssl://b-xxxx-1.mq.ap-south-1.amazonaws.com:8883
+TLS_SCHEMES = ("mqtts", "mqtt+ssl", "ssl", "tls")
+
+
 def normalize_broker(cfg: dict[str, Any]) -> dict[str, Any]:
-    """Accept mqtt_host as bare host, host:port, or mqtt(s)://host:port and
-    split out the port so paho.connect(host, port) always gets a clean host."""
+    """Accept mqtt_host as bare host, host:port, or <scheme>://host:port and split
+    out host / port / TLS so paho.connect(host, port) always gets a clean host."""
     raw = str(cfg.get("mqtt_host") or "").strip()
     if "://" in raw:
         scheme, raw = raw.split("://", 1)
-        if scheme.lower() in ("mqtts", "ssl", "tls") and "mqtt_tls" not in cfg:
+        if scheme.lower() in TLS_SCHEMES:
             cfg["mqtt_tls"] = True
     raw = raw.rstrip("/")
-    # host:port (guard IPv6 which uses many colons)
+
+    # host:port (guard IPv6, which uses many colons)
     if raw.count(":") == 1:
         host, _, port = raw.partition(":")
         if port.isdigit():
             cfg["mqtt_host"] = host
             cfg["mqtt_port"] = int(port)
             return cfg
+
     cfg["mqtt_host"] = raw
+    # TLS with no explicit port: 1883 is the plaintext default and would just hang,
+    # so fall back to the conventional MQTT-over-TLS port instead.
+    if cfg.get("mqtt_tls") and int(cfg.get("mqtt_port") or 1883) == 1883:
+        cfg["mqtt_port"] = 8883
     return cfg
 
 
