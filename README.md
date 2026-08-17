@@ -56,6 +56,12 @@ tail -f data/boot_run.log
 
 `config.json` / `data/` stay local (gitignored). Do not edit app code on the Pi.
 
+Exception: MQTT broker settings (`mqtt_host`, `mqtt_port`, `mqtt_username`,
+`mqtt_password`, `topic_*`) are refreshed into `config.json` from
+`config.example.json` on every boot, so a remote device picks up a broker move or
+credential rotation from a plain `git push` + reboot. Local hardware settings
+(UART port, OLED driver, LED pins) are never touched.
+
 First-time Pi clone (once):
 ```bash
 cd ~
@@ -65,7 +71,8 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 cp config.example.json config.json
-# edit config.json on Pi only (mqtt host, UART port) — this file is gitignored
+# edit config.json on Pi only for hardware settings (UART port, OLED, LED pins).
+# MQTT broker settings come from git on each boot — change them in config.example.json.
 ```
 
 `config.json` and `data/` stay local on each machine (not pushed).

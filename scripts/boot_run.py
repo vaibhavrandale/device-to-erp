@@ -16,13 +16,15 @@ Then after every laptop `git push`, just reboot the Pi:
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
 import time
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
+SELF = Path(__file__).resolve()
+ROOT = SELF.parent.parent
 VENV_PYTHON = ROOT / ".venv" / "bin" / "python"
 MAIN = ROOT / "main.py"
 REQ = ROOT / "requirements.txt"
@@ -77,6 +79,69 @@ def git_pull() -> None:
     log("git reset --hard origin/main done")
 
 
+def restart_self_if_updated(before: bytes) -> None:
+    """git pull writes a new boot_run.py to disk, but this process is still running
+    the old code it loaded at startup. Re-exec so an update to this file takes
+    effect on the same boot instead of the one after it."""
+    if os.environ.get("TAYPRO_BOOT_REEXEC") == "1":
+        return  # already restarted once this boot; never loop
+    try:
+        after = SELF.read_bytes()
+    except OSError:
+        return
+    if after == before:
+        return
+    log("boot_run.py updated by git - restarting with the new version")
+    os.environ["TAYPRO_BOOT_REEXEC"] = "1"
+    os.execv(sys.executable, [sys.executable, str(SELF)])
+
+
+# Server-side settings: always come from git so a remote device picks up broker
+# moves / credential rotations on reboot. Device identity (device_id, device_key,
+# latitude, longitude) lives in data/device.cfg, and local hardware settings
+# (UART port, OLED driver, LED pins) stay in config.json untouched.
+BROKER_KEYS = (
+    "mqtt_host",
+    "mqtt_port",
+    "mqtt_username",
+    "mqtt_password",
+    "topic_up",
+    "topic_down_hw_prefix",
+)
+
+
+def sync_broker_settings() -> None:
+    cfg_path = ROOT / "config.json"
+    example_path = ROOT / "config.example.json"
+    if not example_path.exists():
+        return
+    try:
+        example = json.loads(example_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        log(f"config.example.json unreadable ({exc}) - keeping existing config.json")
+        return
+
+    if not cfg_path.exists():
+        cfg_path.write_text(json.dumps(example, indent=2) + "\n", encoding="utf-8")
+        log("created config.json from example")
+        return
+
+    try:
+        cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        log(f"config.json unreadable ({exc}) - recreating from example")
+        cfg_path.write_text(json.dumps(example, indent=2) + "\n", encoding="utf-8")
+        return
+
+    changed = [k for k in BROKER_KEYS if k in example and cfg.get(k) != example[k]]
+    if not changed:
+        return
+    for key in changed:
+        cfg[key] = example[key]
+    cfg_path.write_text(json.dumps(cfg, indent=2) + "\n", encoding="utf-8")
+    log(f"config.json broker settings updated from git: {', '.join(changed)}")
+
+
 def ensure_venv_deps() -> Path:
     py = VENV_PYTHON if VENV_PYTHON.exists() else Path(sys.executable)
     if not VENV_PYTHON.exists():
@@ -93,19 +158,24 @@ def main() -> int:
     log(f"=== boot_run start cwd={ROOT} ===")
 
     try:
+        self_before = SELF.read_bytes()
+    except OSError:
+        self_before = b""
+
+    try:
         git_pull()
     except Exception as exc:
         log(f"git pull skipped/failed: {exc} — starting with existing code")
+
+    if self_before:
+        restart_self_if_updated(self_before)
 
     py = ensure_venv_deps()
     if not MAIN.exists():
         log(f"missing {MAIN}")
         return 1
 
-    cfg = ROOT / "config.json"
-    if not cfg.exists() and (ROOT / "config.example.json").exists():
-        run(["cp", str(ROOT / "config.example.json"), str(cfg)])
-        log("created config.json from example — edit mqtt/port if needed")
+    sync_broker_settings()
 
     log(f"exec {py} {MAIN}")
     # Replace this process so systemd tracks main.py
