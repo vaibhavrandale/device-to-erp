@@ -13,6 +13,8 @@ DEVICE_CFG_PATH = Path(os.environ.get("TAYPRO_DEVICE_CFG", ROOT / "data" / "devi
 DEFAULTS: dict[str, Any] = {
     "mqtt_host": "52.66.177.182",
     "mqtt_port": 1883,
+    "mqtt_username": "",
+    "mqtt_password": "",
     "topic_up": "hr/attendance/up",
     "topic_down_hw_prefix": "hr/attendance/down/hw/",
     "device_id": "unassigned",
@@ -48,6 +50,26 @@ DEFAULTS: dict[str, Any] = {
 }
 
 
+def normalize_broker(cfg: dict[str, Any]) -> dict[str, Any]:
+    """Accept mqtt_host as bare host, host:port, or mqtt(s)://host:port and
+    split out the port so paho.connect(host, port) always gets a clean host."""
+    raw = str(cfg.get("mqtt_host") or "").strip()
+    if "://" in raw:
+        scheme, raw = raw.split("://", 1)
+        if scheme.lower() in ("mqtts", "ssl", "tls") and "mqtt_tls" not in cfg:
+            cfg["mqtt_tls"] = True
+    raw = raw.rstrip("/")
+    # host:port (guard IPv6 which uses many colons)
+    if raw.count(":") == 1:
+        host, _, port = raw.partition(":")
+        if port.isdigit():
+            cfg["mqtt_host"] = host
+            cfg["mqtt_port"] = int(port)
+            return cfg
+    cfg["mqtt_host"] = raw
+    return cfg
+
+
 def load_config(path: Path | None = None) -> dict[str, Any]:
     cfg = deepcopy(DEFAULTS)
     cfg_path = path or CONFIG_PATH
@@ -56,7 +78,7 @@ def load_config(path: Path | None = None) -> dict[str, Any]:
             file_cfg = json.load(f)
         if isinstance(file_cfg, dict):
             cfg.update(file_cfg)
-    return cfg
+    return normalize_broker(cfg)
 
 
 def parse_u32(value: Any, default: int = 0) -> int:

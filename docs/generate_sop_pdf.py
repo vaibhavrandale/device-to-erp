@@ -241,8 +241,10 @@ def build():
     pdf.step(4, "Edit config.json (kept local, not overwritten by git pull).")
     pdf.code(
         '{\n'
-        '  "mqtt_host": "<broker-ip>",\n'
+        '  "mqtt_host": "<broker-host-or-ip>",\n'
         '  "mqtt_port": 1883,\n'
+        '  "mqtt_username": "<user>",\n'
+        '  "mqtt_password": "<pass>",\n'
         '  "fingerprint_port": "/dev/ttyUSB0",\n'
         '  "fingerprint_baud": 57600,\n'
         '  "oled_driver": "sh1106",\n'

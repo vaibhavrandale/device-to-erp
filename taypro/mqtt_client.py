@@ -20,6 +20,8 @@ class AttendanceMqtt:
         topic_down_prefix: str,
         storage: DeviceStorage,
         on_message: Optional[Callable[[dict[str, Any]], None]] = None,
+        username: str = "",
+        password: str = "",
     ):
         self.host = host
         self.port = port
@@ -38,6 +40,8 @@ class AttendanceMqtt:
         except (AttributeError, TypeError):
             # paho-mqtt 1.x
             self.client = mqtt.Client(client_id=client_id)
+        if username:
+            self.client.username_pw_set(username, password or None)
         self.client.on_connect = self._on_connect
         self.client.on_disconnect = self._on_disconnect
         self.client.on_message = self._on_mqtt_message

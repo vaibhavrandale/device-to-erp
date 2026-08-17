@@ -47,6 +47,8 @@ def main() -> int:
         topic_up=cfg["topic_up"],
         topic_down_prefix=cfg["topic_down_hw_prefix"],
         storage=storage,
+        username=cfg.get("mqtt_username", ""),
+        password=cfg.get("mqtt_password", ""),
     )
     device_log.bind_mqtt(mqtt, sync_interval_s=float(cfg.get("log_sync_interval_s") or 10))
 
